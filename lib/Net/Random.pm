@@ -4,7 +4,7 @@ use strict;
 use warnings;
 use vars qw($VERSION);
 
-$VERSION = '1.0';
+$VERSION = '1.1';
 
 require LWP::UserAgent;
 use Config;
@@ -13,7 +13,8 @@ my $ua = LWP::UserAgent->new(
     agent   => 'perl-Net-Random/'.$VERSION,
     from    => "userid_$<\@".`$Config{aphostname}`,
     timeout => 120,
-    keep_alive => 1
+    keep_alive => 1,
+    env_proxy => 1
 );
 
 my %randomness = (
@@ -88,6 +89,9 @@ get chunks of 1024 bytes at a time, storing it in a pool which is used up
 as and when needed.  The pool is shared between all objects using the
 same randomness source.  When we run out of randomness we go back to the
 source for more juicy random goodness.
+
+If you have set a http_proxy variable in your environment, this will be
+honoured.
 
 While we always fetch 1024 bytes, data can be used up one, two, three or
 four bytes at a time, depending on the range between the minimum and
@@ -191,17 +195,31 @@ random bytes to use per result.  I strongly suggest only using BigInts
 when absolutely necessary, because they are slooooooow.
 
 Tests are a bit lame.  Really needs to test the results to make sure
-they're truly random (to make sure I haven't introduced any bias) and
+they're as random as the input (to make sure I haven't introduced any bias) and
 in the right range.  The current tests for whether the distributions
 look sane suck donkey dick.
 
+=head1 SECURITY CONCERNS
+
+True randomness is very useful for cryptographic applications.  Unfortunately,
+I can not recommend using this module to produce such random data.  While
+some simple testing shows that we can be fairly confident that it is random,
+and the published methodologies on both sites used looks sane, you can not,
+unfortunately, trust that you are getting unique data (ie, someone else might
+get the same bytes as you) or that they don't log who gets what data.
+
+Be aware that if you use an http_proxy - or if your upstream uses a transparent
+proxy like some of the more shoddy consumer ISPs do - then that is another place
+that your randomness could be compromised.
+
+I should stress that I *do* trust both site maintainers to give me data that
+is sufficiently random and unique for my own uses, but I can not recommend
+that you do too.  As in any security situation, you need to perform your own
+risk analysis.
+
 =head1 FEEDBACK
 
-I welcome feedback about my code, including constructive criticism.  And,
-while this is free software (both free-as-in-beer and free-as-in-speech) I
-also welcome payment.  In particular, your bug reports will get moved to
-the front of the queue if you buy me something from my wishlist, which can
-be found at L<http://www.cantrell.org.uk/david/shopping-list/wishlist>.
+I welcome feedback about my code, especially constructive criticism.
 
 I do *not* welcome automated bug reports from people who haven't read
 the README.  Yes, CPAN-testers, that means you.
@@ -213,9 +231,13 @@ David Cantrell E<lt>F<david@cantrell.org.uk>E<gt>
 Thanks are also due to the maintainers of the randomness sources.  See
 their web sites for details on how to praise them.
 
+Suggestions from the following people have been included:
+  Rich Rauenzahn, for using an http_proxy;
+  Wiggins d Anconia suggested I mutter in the docs about security concerns
+
 =head1 COPYRIGHT
 
-Copyright 2003 David Cantrell
+Copyright 2003 - 2004 David Cantrell
 
 This module is free-as-in-speech software, and may be used, distributed,
 and modified under the same terms as Perl itself.
