@@ -76,7 +76,7 @@ $r = Net::Random->new(max => 300, src => 'random.org');
 print 'not ' if(grep { $_ < 0 || $_ > 300 } @data);
 print 'ok '.(++$test)." generates values from 0 to 300 in correct range\n";
 
-print 'not ' if(grep { $_ > 10 } values %dist);
+print 'not ' if(grep { $_ > 15 } values %dist);
 print 'ok '.(++$test)." distribution looks sane\n";
 
 $r = Net::Random->new(max => 70000, src => 'random.org');

@@ -1,3 +1,4 @@
+1.2	2005-12-13	Updated tests so they randomly fail less often
 1.1	2004-09-06	Added support for proxies, via LWP::UserAgent's
                         env_proxy.  Thanks to Rich Rauenzahn for pointing
 			this functionality out to me.
