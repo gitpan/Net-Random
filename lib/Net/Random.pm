@@ -1,17 +1,17 @@
 package Net::Random;
 
 use strict;
-use warnings;
+local $^W = 1;
 use vars qw($VERSION);
 
-$VERSION = '1.3';
+$VERSION = '1.4';
 
 require LWP::UserAgent;
-use Config;
+use Sys::Hostname;
 
 my $ua = LWP::UserAgent->new(
     agent   => 'perl-Net-Random/'.$VERSION,
-    from    => "userid_$<\@".`$Config{aphostname}`,
+    from    => "userid_$<\@".hostname(),
     timeout => 120,
     keep_alive => 1,
     env_proxy => 1
