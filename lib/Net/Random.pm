@@ -1,13 +1,16 @@
+# $Id: Random.pm,v 1.5 2007/04/12 14:53:28 drhyde Exp $
 package Net::Random;
 
 use strict;
 local $^W = 1;
-use vars qw($VERSION);
+use vars qw($VERSION %randomness);
 
-$VERSION = '1.4';
+$VERSION = '2.0';
 
 require LWP::UserAgent;
 use Sys::Hostname;
+
+use Data::Dumper;
 
 my $ua = LWP::UserAgent->new(
     agent   => 'perl-Net-Random/'.$VERSION,
@@ -17,7 +20,7 @@ my $ua = LWP::UserAgent->new(
     env_proxy => 1
 );
 
-my %randomness = (
+%randomness = (
     'fourmilab.ch' => { pool => [], retrieve => sub {
         my $response = $ua->get(
 	    'http://www.fourmilab.ch/cgi-bin/uncgi/Hotbits?nbytes=1024&fmt=hex'
@@ -34,25 +37,21 @@ my %randomness = (
 	map { map { hex } /(..)/g } grep { /^[0-9A-F]+$/ } split(/\s+/, $content);
     } },
     'random.org'   => { pool => [], retrieve => sub {
-        my $response = $ua->get('http://www.random.org/cgi-bin/checkbuf');
+        my $response = $ua->get(
+	    'http://random.org/cgi-bin/randbyte?nbytes=1024&format=hex'
+	);
 	if(!$response->is_success) {
 	    warn "Net::Random: Error talking to random.org\n";
             return ();
-	} else {
-	    $response->content() =~ /^(\d+)/;
-	    if($1 < 20) {
-	        warn "Net::Random: random.org buffer nearly empty\n";
-	        return ();
-            }
 	}
-        $response = $ua->get(
-	    'http://random.org/cgi-bin/randbyte?nbytes=1024&format=hex'
-	);
-	unless($response->is_success) {
-	    warn "Net::Random: Error talking to random.org\n";
-            return ();
+
+	$response = $response->content();
+	if($response =~ /quota/i) {
+	    warn("Net::Random: random.org ran out of randomness for us\n");
+	    return ();
 	}
-	map { hex } split(/\s+/, $response->content());
+
+	map { hex } split(/\s+/, $response);
     } }
 );
 
@@ -116,9 +115,10 @@ The constructor returns a Net::Random object.  It takes named parameters,
 of which one - 'src' - is compulsory, telling the module where to get its
 random data from.  The 'min' and 'max' parameters are optional, and default
 to 0 and 255 respectively.  Both must be integers, and 'max' must be at
-least min+1.  The minimum value of 'min' is 0.  The maximum value of 'max'
+least min+1.  The maximum value of 'max'
 is 2^32-1, the largest value that can be stored in a 32-bit int, or
-0xFFFFFFFF.
+0xFFFFFFFF.  The range between min and max can not be greater than
+0xFFFFFFFF either.
 
 Currently, the only valid values of 'src' are 'fourmilab.ch' and
 'random.org'.
@@ -131,17 +131,18 @@ sub new {
     exists($params{min}) or $params{min} = 0;
     exists($params{max}) or $params{max} = 255;
 
-    die("Bad parameters to Net::Random->new()") if(
+    die("Bad parameters to Net::Random->new():\n".Dumper(\@_)) if(
         (grep {
             $_ !~ /^(src|min|max)$/
         } keys %params) ||
 	!exists($params{src}) ||
 	$params{src} !~ /^(fourmilab\.ch|random\.org)$/ ||
-	$params{min} =~ /\D/ ||
-	$params{max} =~ /\D/ ||
-	$params{min} < 0 ||
-	$params{max} > 2 ** 32 - 1 ||
-	$params{min} >= $params{max}
+	$params{min} !~ /^-?\d+$/ ||
+	$params{max} !~ /^-?\d+$/ ||
+	# $params{min} < 0 ||
+	$params{max} > 0xFFFFFFFF ||
+	$params{min} >= $params{max} ||
+	$params{max} - $params{min} > 0xFFFFFFFF
     );
 
     bless({ %params }, $class);
@@ -153,12 +154,9 @@ Takes a single optional parameter, which must be a positive integer.
 This determines how many random numbers are to be returned and, if not
 specified, defaults to 1.
 
-If it fails to retrieve data, we return undef.  Note that fourmilab.ch
-rations random data and you are only permitted to retrieve a certain
-amount of randomness in any 24 hour period, and random.org asks software
-authors to not empty their randomness pool entirely.  In both these cases
-we spit out a warning.  See the section on ERROR
-HANDLING below.
+If it fails to retrieve data, we return undef.  Note that both sources
+ration their random data.  If you hit your quota, we spit out a warning.
+See the section on ERROR HANDLING below.
 
 =cut
 
@@ -183,10 +181,8 @@ sub get {
 	    @{$randomness{$self->{src}}->{pool}}, 0, $bytes
 	));
 	
-	my $range = $self->{max} + 1 - $self->{min};
-	my $max_multiple = $range * int((2 ** (8 * $bytes)) / $range);
-	push @results, $self->{min} + ($random_number % $range)
-	    unless($random_number > $max_multiple);
+	$random_number += $self->{min};
+	push @results, $random_number unless($random_number > $self->{max});
     }
     @results;
 }
@@ -201,9 +197,8 @@ random bytes to use per result.  I strongly suggest only using BigInts
 when absolutely necessary, because they are slooooooow.
 
 Tests are a bit lame.  Really needs to test the results to make sure
-they're as random as the input (to make sure I haven't introduced any bias) and
-in the right range.  The current tests for whether the distributions
-look sane suck donkey dick.
+they're as random as the input (to make sure I haven't introduced any
+bias).
 
 =head1 SECURITY CONCERNS
 
@@ -248,9 +243,6 @@ by using C<$SIG{__WARN__}>.  See C<perldoc perlvar> for details.
 
 I welcome feedback about my code, especially constructive criticism.
 
-I do *not* welcome automated bug reports from people who haven't read
-the README.  Yes, CPAN-testers, that means you.
-
 =head1 AUTHOR
 
 David Cantrell E<lt>F<david@cantrell.org.uk>E<gt>
@@ -262,7 +254,7 @@ Suggestions from the following people have been included:
   Rich Rauenzahn, for using an http_proxy;
   Wiggins d Anconia suggested I mutter in the docs about security concerns
 
-=head1 COPYRIGHT
+=head1 COPYRIGHT and LICENCE
 
 Copyright 2003 - 2007 David Cantrell
 

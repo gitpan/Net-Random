@@ -1,7 +1,17 @@
 lib/Net/Random.pm
-t/all.t
+t/param-checking.t
+t/live-tests.t
+t/pod.t
+t/pod-coverage.t
+t/fake-tests.t
 CHANGES
 README
 MANIFEST
 Makefile.PL
+t/fourmilab-data
+t/fourmilab-outofdata
+t/random.org-checkbuf
+t/random.org-data
+TODO
+example/dice
 META.yml                                 Module meta-data (added by MakeMaker)
