@@ -1,11 +1,10 @@
-# $Id: Random.pm,v 1.5 2007/04/12 14:53:28 drhyde Exp $
 package Net::Random;
 
 use strict;
 local $^W = 1;
 use vars qw($VERSION %randomness);
 
-$VERSION = '2.0';
+$VERSION = '2.1';
 
 require LWP::UserAgent;
 use Sys::Hostname;
@@ -13,55 +12,66 @@ use Sys::Hostname;
 use Data::Dumper;
 
 my $ua = LWP::UserAgent->new(
-    agent   => 'perl-Net-Random/'.$VERSION,
-    from    => "userid_$<\@".hostname(),
-    timeout => 120,
-    keep_alive => 1,
-    env_proxy => 1
+  agent   => 'perl-Net-Random/'.$VERSION,
+  from  => "userid_$<\@".hostname(),
+  timeout => 120,
+  keep_alive => 1,
+  env_proxy => 1
 );
 
 %randomness = (
-    'fourmilab.ch' => { pool => [], retrieve => sub {
-        my $response = $ua->get(
-	    'http://www.fourmilab.ch/cgi-bin/uncgi/Hotbits?nbytes=1024&fmt=hex'
-	);
-	unless($response->is_success) {
-	    warn "Net::Random: Error talking to fourmilab.ch\n";
-            return ();
-	}
-        my $content = $response->content();
-        if($content =~ /Error Generating HotBits/) {
-            warn("Net::Random: fourmilab.ch ran out of randomness for us\n");
-            return ();
-        }
-	map { map { hex } /(..)/g } grep { /^[0-9A-F]+$/ } split(/\s+/, $content);
-    } },
-    'random.org'   => { pool => [], retrieve => sub {
-        my $response = $ua->get(
-	    'http://random.org/cgi-bin/randbyte?nbytes=1024&format=hex'
-	);
-	if(!$response->is_success) {
-	    warn "Net::Random: Error talking to random.org\n";
-            return ();
-	}
+  'fourmilab.ch' => { pool => [], retrieve => sub {
+    my $ssl = shift;
+    my $response = $ua->get( 
+      ($ssl ? 'https' : 'http') .
+      '://www.fourmilab.ch/cgi-bin/uncgi/Hotbits?nbytes=1024&fmt=hex'
+    );
+    unless($response->is_success) {
+      warn "Net::Random: Error talking to fourmilab.ch\n";
+      return ();
+    }
+    my $content = $response->content();
+    if($content =~ /Error Generating HotBits/) {
+      warn("Net::Random: fourmilab.ch ran out of randomness for us\n");
+      return ();
+    }
+    map { map { hex } /(..)/g } grep { /^[0-9A-F]+$/ } split(/\s+/, $content);
+  } },
+  'random.org'   => { pool => [], retrieve => sub {
+    my $ssl = shift;
+    my $response = $ua->get(
+      ($ssl ? 'https' : 'http') .
+      '://random.org/cgi-bin/randbyte?nbytes=1024&format=hex'
+    );
 
-	$response = $response->content();
-	if($response =~ /quota/i) {
-	    warn("Net::Random: random.org ran out of randomness for us\n");
-	    return ();
-	}
+    if ( ! $response->is_success ) {
+      warn "Net::Random: Error talking to random.org\n";
+      return ();
+    }
+  
+    $response = $response->content();
 
-	map { hex } split(/\s+/, $response);
-    } }
+    if($response =~ /quota/i) {
+      warn("Net::Random: random.org ran out of randomness for us\n");
+      return ();
+    }
+    # Old scripts *always* return 200, so look for 'Error:'
+    elsif($response =~ /Error:/) {
+      warn "Net::Random: Server error while talking to random.org\n";
+      return ();
+    }
+
+    map { hex } split(/\s+/, $response);
+  } }
 );
 
 # recharges the randomness pool
 sub _recharge {
-    my $self = shift;
-    $randomness{$self->{src}}->{pool} = [
-        @{$randomness{$self->{src}}->{pool}},
-        &{$randomness{$self->{src}}->{retrieve}}
-    ];
+  my $self = shift;
+  $randomness{$self->{src}}->{pool} = [
+    @{$randomness{$self->{src}}->{pool}},
+    &{$randomness{$self->{src}}->{retrieve}}($self->{ssl})
+  ];
 }
 
 =head1 NAME
@@ -70,24 +80,24 @@ Net::Random - get random data from online sources
 
 =head1 SYNOPSIS
 
-    my $rand = Net::Random->new( # use fourmilab.ch's randomness source,
-        src => 'fourmilab.ch',   # and return results from 1 to 2000
-	min => 1,
-	max => 2000
-    );
-    @numbers = $rand->get(5);    # get 5 numbers
-    
-    my $rand = Net::Random->new( # use random.org's randomness source,
-        src => 'random.org',     # with no explicit range - so values will
-    );                           # be in the default range from 0 to 255
+  my $rand = Net::Random->new( # use fourmilab.ch's randomness source,
+    src => 'fourmilab.ch',   # and return results from 1 to 2000
+    min => 1,
+    max => 2000
+  );
+  @numbers = $rand->get(5);  # get 5 numbers
+  
+  my $rand = Net::Random->new( # use random.org's randomness source,
+    src => 'random.org',   # with no explicit range - so values will
+  );               # be in the default range from 0 to 255
 
-    $number = $rand->get();      # get 1 random number
+  $number = $rand->get();    # get 1 random number
 
 =head1 OVERVIEW
 
 The two sources of randomness above correspond to
-L<http://www.fourmilab.ch/cgi-bin/uncgi/Hotbits?nbytes=1024&fmt=hex> and
-L<http://random.org/cgi-bin/randbyte?nbytes=1024&format=hex>.  We always
+L<https://www.fourmilab.ch/cgi-bin/uncgi/Hotbits?nbytes=1024&fmt=hex> and
+L<https://random.org/cgi-bin/randbyte?nbytes=1024&format=hex>.  We always
 get chunks of 1024 bytes at a time, storing it in a pool which is used up
 as and when needed.  The pool is shared between all objects using the
 same randomness source.  When we run out of randomness we go back to the
@@ -120,32 +130,40 @@ is 2^32-1, the largest value that can be stored in a 32-bit int, or
 0xFFFFFFFF.  The range between min and max can not be greater than
 0xFFFFFFFF either.
 
+You may also set 'ssl' to 0 if you wish to retrieve data using plaintext
+(or outbound SSL is prohibited in your network environment for some reason)
+
 Currently, the only valid values of 'src' are 'fourmilab.ch' and
 'random.org'.
 
 =cut
 
 sub new {
-    my($class, %params) = @_;
+  my($class, %params) = @_;
 
-    exists($params{min}) or $params{min} = 0;
-    exists($params{max}) or $params{max} = 255;
+  exists($params{min}) or $params{min} = 0;
+  exists($params{max}) or $params{max} = 255;
+  exists($params{ssl}) or $params{ssl} = 1;
 
-    die("Bad parameters to Net::Random->new():\n".Dumper(\@_)) if(
-        (grep {
-            $_ !~ /^(src|min|max)$/
-        } keys %params) ||
-	!exists($params{src}) ||
-	$params{src} !~ /^(fourmilab\.ch|random\.org)$/ ||
-	$params{min} !~ /^-?\d+$/ ||
-	$params{max} !~ /^-?\d+$/ ||
-	# $params{min} < 0 ||
-	$params{max} > 0xFFFFFFFF ||
-	$params{min} >= $params{max} ||
-	$params{max} - $params{min} > 0xFFFFFFFF
-    );
+  die("Bad parameters to Net::Random->new():\n".Dumper(\@_)) if(
+    (grep {
+      $_ !~ /^(src|min|max|ssl)$/
+    } keys %params) ||
+    !exists($params{src}) ||
+    $params{src} !~ /^(fourmilab\.ch|random\.org)$/ ||
+    $params{min} !~ /^-?\d+$/ ||
+    $params{max} !~ /^-?\d+$/ ||
+    # $params{min} < 0 ||
+    $params{max} > 0xFFFFFFFF ||
+    $params{min} >= $params{max} ||
+    $params{max} - $params{min} > 0xFFFFFFFF
+  );
 
-    bless({ %params }, $class);
+  if ( $params{ssl} ) {
+    eval "use LWP::Protocol::https; 1;" or die "LWP::Protocol::https required for SSL connections";
+  }
+
+  bless({ %params }, $class);
 }
 
 =item get
@@ -161,30 +179,30 @@ See the section on ERROR HANDLING below.
 =cut
 
 sub get {
-    my($self, $results) = @_;
-    defined($results) or $results = 1;
-    die("Bad parameter to Net::Random->get()") if($results =~ /\D/);
+  my($self, $results) = @_;
+  defined($results) or $results = 1;
+  die("Bad parameter to Net::Random->get()") if($results =~ /\D/);
 
-    my $bytes = 5; # MAXBYTES + 1
-    foreach my $bits (32, 24, 16, 8) {
-        $bytes-- if($self->{max} - $self->{min} < 2 ** $bits);
-    }
-    die("Out of cucumber error") if($bytes == 5);
+  my $bytes = 5; # MAXBYTES + 1
+  foreach my $bits (32, 24, 16, 8) {
+    $bytes-- if($self->{max} - $self->{min} < 2 ** $bits);
+  }
+  die("Out of cucumber error") if($bytes == 5);
 
-    my @results = ();
-    while(@results < $results) {
-        $self->_recharge() if(@{$randomness{$self->{src}}->{pool}} < $bytes);
-	return undef if(@{$randomness{$self->{src}}->{pool}} < $bytes);
+  my @results = ();
+  while(@results < $results) {
+    $self->_recharge() if(@{$randomness{$self->{src}}->{pool}} < $bytes);
+    return undef if(@{$randomness{$self->{src}}->{pool}} < $bytes);
 
-	my $random_number = 0;
-	$random_number = ($random_number << 8) + $_ foreach (splice(
-	    @{$randomness{$self->{src}}->{pool}}, 0, $bytes
-	));
-	
-	$random_number += $self->{min};
-	push @results, $random_number unless($random_number > $self->{max});
-    }
-    @results;
+    my $random_number = 0;
+    $random_number = ($random_number << 8) + $_ foreach (splice(
+      @{$randomness{$self->{src}}->{pool}}, 0, $bytes
+    ));
+    
+    $random_number += $self->{min};
+    push @results, $random_number unless($random_number > $self->{max});
+  }
+  @results;
 }
 
 =back
@@ -224,11 +242,11 @@ There are two types of error that this module can emit which aren't your
 fault.  Those are network
 errors, in which case it emits a warning:
 
-    Net::Random: Error talking to [your source]
+  Net::Random: Error talking to [your source]
 
 and errors generated by the randomness sources, which look like:
 
-    Net::Random: [your source] [message]
+  Net::Random: [your source] [message]
 
 Once you hit either of these errors, it means that either you have run
 out of randomness and can't get any more, or you are very close to
@@ -243,9 +261,17 @@ by using C<$SIG{__WARN__}>.  See C<perldoc perlvar> for details.
 
 I welcome feedback about my code, especially constructive criticism.
 
-=head1 AUTHOR
+=head1 AUTHOR, COPYRIGHT and LICENCE
 
-David Cantrell E<lt>F<david@cantrell.org.uk>E<gt>
+Copyright 2003 - 2012 David Cantrell E<lt>F<david@cantrell.org.uk>E<gt>
+
+This software is free-as-in-speech software, and may be used,
+distributed, and modified under the terms of either the GNU
+General Public Licence version 2 or the Artistic Licence. It's
+up to you which one you use. The full text of the licences can
+be found in the files GPL2.txt and ARTISTIC.txt, respectively.
+
+=head1 THANKS TO
 
 Thanks are also due to the maintainers of the randomness sources.  See
 their web sites for details on how to praise them.
@@ -254,12 +280,12 @@ Suggestions from the following people have been included:
   Rich Rauenzahn, for using an http_proxy;
   Wiggins d Anconia suggested I mutter in the docs about security concerns
 
-=head1 COPYRIGHT and LICENCE
+And patches from:
+  Mark Allen, who supplied the code for using SSL
 
-Copyright 2003 - 2007 David Cantrell
+=head1 CONSPIRACY
 
-This module is free-as-in-speech software, and may be used, distributed,
-and modified under the same terms as Perl itself.
+This module is also free-as-in-mason software.
 
 =cut
 
