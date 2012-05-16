@@ -39,5 +39,8 @@
       }
    },
    "release_status" : "stable",
-   "version" : "2.1"
+   "version" : "2.2",
+   "x_resource" : {
+      "repository" : "https://github.com/DrHyde/perl-modules-Net-Random"
+   }
 }
