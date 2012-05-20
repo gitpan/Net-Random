@@ -4,10 +4,11 @@ use strict;
 local $^W = 1;
 use vars qw($VERSION %randomness);
 
-$VERSION = '2.2';
+$VERSION = '2.21';
 
 require LWP::UserAgent;
 use Sys::Hostname;
+use JSON ();
 
 use Data::Dumper;
 
@@ -24,15 +25,18 @@ my $ua = LWP::UserAgent->new(
     my $ssl = shift;
     my $response = $ua->get( 
       ($ssl ? 'https' : 'http') .
-      '://qrng.anu.edu.au/RawHex.php'
+      '://qrng.anu.edu.au/API/jsonI.php?length=1024&size=1&type=uint8'
     );
     unless($response->is_success) {
       warn "Net::Random: Error talking to qrng.anu.edu.au\n";
       return ();
     }
-    my $content = $response->content();
-    $content =~ s{.*<td>\n(.*)</td>.*}{$1}sg;
-    map { map { hex } /(..)/g } $content;
+    my $content = JSON::decode_json($response->content());
+    if($content->{success} ne 'true') {
+      warn("Net::Random: qrng.anu.edu.au said 'success: ".$content->{success}."'\n");
+      return();
+    }
+    @{$content->{data}};
   } },
   'fourmilab.ch' => { pool => [], retrieve => sub {
     my $ssl = shift;
@@ -95,28 +99,29 @@ Net::Random - get random data from online sources
 =head1 SYNOPSIS
 
   my $rand = Net::Random->new( # use fourmilab.ch's randomness source,
-    src => 'fourmilab.ch',   # and return results from 1 to 2000
+    src => 'fourmilab.ch',     # and return results from 1 to 2000
     min => 1,
     max => 2000
   );
-  @numbers = $rand->get(5);  # get 5 numbers
+  @numbers = $rand->get(5);    # get 5 numbers
 
   my $rand = Net::Random->new( # use qrng.anu.edu.au's randomness source,
-    src => 'qrng.anu.edu.au',   # with no explicit range - so values will
-  );               # be in the default range from 0 to 255
+    src => 'qrng.anu.edu.au',  # with no explicit range - so values will
+  );                           # be in the default range from 0 to 255
 
   my $rand = Net::Random->new( # use random.org's randomness source,
-    src => 'random.org',   # with no explicit range - so values will
-  );               # be in the default range from 0 to 255
+    src => 'random.org',
+  );
 
-  $number = $rand->get();    # get 1 random number
+  $number = $rand->get();      # get 1 random number
 
 =head1 OVERVIEW
 
 The three sources of randomness above correspond to
-L<https://www.fourmilab.ch/cgi-bin/uncgi/Hotbits?nbytes=1024&fmt=hex> and
+L<https://www.fourmilab.ch/cgi-bin/uncgi/Hotbits?nbytes=1024&fmt=hex>,
 L<https://random.org/cgi-bin/randbyte?nbytes=1024&format=hex> and 
-L<https://qrng.anu.edu.au/RawHex.php>.  We always get chunks of 1024 bytes
+L<https://qrng.anu.edu.au/API/jsonI.php?length=1024&size=1&type=uint8>.
+We always get chunks of 1024 bytes
 at a time, storing it in a pool which is used up as and when needed.  The pool
 is shared between all objects using the same randomness source.  When we run
 out of randomness we go back to the source for more juicy random goodness.
@@ -129,7 +134,7 @@ four bytes at a time, depending on the range between the minimum and
 maximum desired values.  There may be a noticeable delay while more
 random data is fetched.
 
-The maintainers of both randomness sources claim that their data is
+The maintainers of all the randomness sources claim that their data is
 *truly* random.  A some simple tests show that they are certainly more
 random than the C<rand()> function on this 'ere machine.
 
@@ -190,7 +195,7 @@ Takes a single optional parameter, which must be a positive integer.
 This determines how many random numbers are to be returned and, if not
 specified, defaults to 1.
 
-If it fails to retrieve data, we return undef.  Note that both sources
+If it fails to retrieve data, we return undef.  Note that all the sources
 ration their random data.  If you hit your quota, we spit out a warning.
 See the section on ERROR HANDLING below.
 
@@ -241,15 +246,20 @@ bias).
 True randomness is very useful for cryptographic applications.  Unfortunately,
 I can not recommend using this module to produce such random data.  While
 some simple testing shows that we can be fairly confident that it is random,
-and the published methodologies on both sites used looks sane, you can not,
+and the published methodologies on all the sites used looks sane, you can not,
 unfortunately, trust that you are getting unique data (ie, someone else might
-get the same bytes as you) or that they don't log who gets what data.
+get the same bytes as you), that they don't log who gets what data, or that
+no-one is intercepting it en route to surreptitiously make a copy..
 
 Be aware that if you use an http_proxy - or if your upstream uses a transparent
 proxy like some of the more shoddy consumer ISPs do - then that is another place
-that your randomness could be compromised.
+that your randomness could be compromised.  Even if using https a sophisticated
+attacker may be able to intercept your data, because I make no effort to
+verify the sources' SSL certificates (I'd love to receive a patch to do this)
+and even if I did, there have been cases when trusted CAs issued bogus
+certificates, which could be used in MITM attacks.
 
-I should stress that I *do* trust both site maintainers to give me data that
+I should stress that I *do* trust all the site maintainers to give me data that
 is sufficiently random and unique for my own uses, but I can not recommend
 that you do too.  As in any security situation, you need to perform your own
 risk analysis.
@@ -298,9 +308,18 @@ Suggestions from the following people have been included:
 
 =over
 
-=item Rich Rauenzahn, for using an http_proxy;
+=item Rich Rauenzahn
 
-=item Wiggins d Anconia suggested I mutter in the docs about security concerns
+Suggested I allow use of an http_proxy;
+
+=item Wiggins d Anconia
+
+Suggested I mutter in the docs about security concerns;
+
+=item Syed Assad
+
+Suggested that I use the JSON interface for QRNG instead of scraping 
+the web site;
 
 =back
 
@@ -308,9 +327,13 @@ And patches from:
 
 =over
 
-=item Mark Allen, who supplied the code for using SSL;
+=item Mark Allen
 
-=item Steve Wills, who supplied the code for talking to qrng.anu.edu.au;
+code for using SSL;
+
+=item Steve Wills
+
+code for talking to qrng.anu.edu.au;
 
 =back
 
