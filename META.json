@@ -32,6 +32,7 @@
       },
       "runtime" : {
          "requires" : {
+            "Encode::Locale" : "1.01",
             "JSON" : 0,
             "LWP::UserAgent" : 0,
             "Test::MockObject" : "1.07",
@@ -40,8 +41,6 @@
       }
    },
    "release_status" : "stable",
-   "version" : "2.21",
-   "x_resource" : {
-      "repository" : "https://github.com/DrHyde/perl-modules-Net-Random"
-   }
+   "resources" : {},
+   "version" : "2.22"
 }
